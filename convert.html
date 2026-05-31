@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Choco-Mufin — Check / Convert</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<link rel="stylesheet" href="./design/styles.css">
+<style>
+@font-face {
+  font-family: 'Junicode';
+  src: url('https://cdn.jsdelivr.net/gh/psb1558/Junicode-font@main/webfonts/JunicodeVF-Roman.woff2') format('woff2');
+  font-weight: 100 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Junicode';
+  src: url('https://cdn.jsdelivr.net/gh/psb1558/Junicode-font@main/webfonts/JunicodeVF-Italic.woff2') format('woff2');
+  font-weight: 100 900; font-style: italic; font-display: swap;
+}
+:root { --serif: "Source Serif 4", "Junicode", Georgia, serif; }
+
+[hidden] { display: none !important; }
+
+/* ── Fixed-height layout ── */
+html, body { height: 100%; overflow: hidden; }
+.app { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+#page-body { flex: 1; min-height: 0; overflow-y: auto; }
+
+/* ── Table status ── */
+.table-pill {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--allow-bg); color: var(--allow-fg);
+  border: 1px solid #b5dfc5; border-radius: 100px;
+  font-size: 13px; font-weight: 600; padding: 5px 13px; white-space: nowrap;
+}
+.table-pill.missing { background: var(--amber-bg); color: var(--amber); border-color: #f0dc9c; }
+
+/* ── File result blocks ── */
+.file-block { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
+.file-block-hdr { display: flex; align-items: center; gap: 10px; padding: 9px 14px; background: var(--rail); border-bottom: 1px solid var(--line); font-weight: 600; font-size: 14px; flex-wrap: wrap; }
+.file-badge { font-size: 11px; border-radius: 10px; padding: 2px 8px; font-weight: 700; }
+.file-badge.ok   { background: var(--allow-bg); color: var(--allow-fg); }
+.file-badge.warn { background: var(--skip-bg);  color: var(--skip-fg); }
+.file-badge.dl   { background: var(--regex-bg); color: var(--regex-fg); }
+.line-row  { padding: 7px 14px; border-top: 1px solid var(--line-soft); }
+.line-id   { font-family: var(--mono); font-size: 11.5px; color: var(--muted); margin-bottom: 2px; }
+.line-text { font-family: var(--serif); font-size: 1.05em; line-height: 1.6; }
+.unk-chips { margin-top: 4px; font-size: 12px; color: var(--muted); }
+.log-row  { padding: 8px 14px; border-top: 1px solid var(--line-soft); }
+.log-line-id { font-family: var(--mono); font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+.log-diff { font-family: var(--serif); font-size: 1.05em; line-height: 1.8; }
+del.diff-del {
+  background: #ffe0dd; color: var(--red);
+  border-radius: 3px; padding: 0 2px;
+  text-decoration: line-through;
+  text-decoration-color: var(--red);
+}
+ins.diff-ins {
+  background: #d5f0df; color: var(--green-dark);
+  border-radius: 3px; padding: 0 2px;
+  text-decoration: none;
+}
+.dl-btn { display: inline-flex; align-items: center; padding: 3px 10px; background: var(--blue); color: #fff; border-radius: 6px; text-decoration: none; font-size: 12.5px; font-weight: 600; }
+.dl-btn:hover { background: var(--blue-dark); }
+.info-msg { padding: 22px; color: var(--muted); font-size: 14px; }
+mark.unk { background: #ffe2dd; color: var(--red); border-radius: 3px; padding: 0 1px; }
+
+/* ════════════════════════════════════════════════════════
+   Modal
+   ════════════════════════════════════════════════════════ */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(28,44,58,.52);
+  backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
+  animation: bd-in .16s ease;
+}
+@keyframes bd-in { from { opacity: 0; } }
+
+.modal {
+  background: var(--card); border-radius: var(--radius);
+  box-shadow: var(--shadow-lg);
+  width: 100%; max-width: 580px;
+  max-height: calc(100vh - 40px);
+  display: flex; flex-direction: column;
+  animation: m-in .18s ease;
+}
+@keyframes m-in { from { transform: translateY(10px); opacity: 0; } }
+
+.modal-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 18px 22px; border-bottom: 1px solid var(--line); flex-shrink: 0;
+}
+.modal-head h2 { margin: 0; font-size: 17px; font-weight: 700; color: var(--ink); flex: 1; }
+.modal-close {
+  width: 30px; height: 30px; border-radius: 7px; border: none; background: transparent;
+  cursor: pointer; font-size: 15px; color: var(--muted); display: grid; place-items: center;
+  transition: background .1s, color .1s;
+}
+.modal-close:hover { background: var(--line); color: var(--ink); }
+
+.modal-body { padding: 22px; overflow-y: auto; flex: 1; }
+.modal-sec { margin-bottom: 24px; }
+.modal-sec:last-child { margin-bottom: 0; }
+.modal-sec-title { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--faint); margin: 0 0 10px; }
+.modal-div { height: 1px; background: var(--line); margin: 22px 0; }
+
+.modal-foot {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 22px; border-top: 1px solid var(--line); flex-shrink: 0;
+}
+.modal-foot-status { flex: 1; font-size: 13px; color: var(--muted); }
+.modal-foot-status.ok { color: var(--green-dark); font-weight: 600; }
+.modal-foot-status.err { color: var(--red); }
+
+/* Source cards (localStorage / CSV) */
+.source-card {
+  border: 1.5px solid var(--line); border-radius: 9px; padding: 14px 16px;
+  display: flex; align-items: center; gap: 13px; background: #fff;
+  margin-bottom: 10px; transition: border-color .12s, background .12s;
+}
+.source-card.active { border-color: var(--choco); background: var(--choco-bg); }
+.source-card .sc-ic { font-size: 22px; flex-shrink: 0; }
+.source-card .sc-body { flex: 1; min-width: 0; }
+.source-card .sc-title { font-size: 14px; font-weight: 600; color: var(--ink); }
+.source-card .sc-detail {
+  font-size: 12.5px; color: var(--muted); margin-top: 2px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.source-card.active .sc-detail { color: var(--choco-soft); }
+.source-card .sc-badge {
+  font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 100px;
+  background: var(--allow-bg); color: var(--allow-fg); flex-shrink: 0;
+}
+.source-card.missing .sc-badge {
+  background: var(--amber-bg); color: var(--amber);
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ── Header ─────────────────────────────────────────────── -->
+<header class="hdr">
+  <div class="hdr-brand">
+    <span class="bar">🍫</span>
+    <span>Choco-Mufin</span>
+  </div>
+  <nav class="hdr-tabs">
+    <a class="hdr-tab" href="./index.html">Table Editor</a>
+    <div class="hdr-tab on">Check / Convert</div>
+  </nav>
+  <div class="hdr-right">
+    <a href="https://htr-united.github.io" target="_blank" rel="noopener"
+       style="color:#c6d2dc;font-size:13px;font-weight:500;text-decoration:none;opacity:.85;transition:opacity .12s"
+       onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.85">HTR-United ↗</a>
+    <span class="privacy" title="Choco-Mufin runs 100% in your browser — your files are never uploaded.">
+      <span class="lock">🔒</span>
+      <span>Runs in your browser · <b>no upload</b></span>
+    </span>
+  </div>
+</header>
+
+<!-- ── Modal ─────────────────────────────────────────────── -->
+<div id="modal-backdrop" class="modal-backdrop" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+
+    <div class="modal-head">
+      <h2 id="modal-title">Table &amp; normalization settings</h2>
+      <button class="modal-close" id="btn-modal-close" title="Close">✕</button>
+    </div>
+
+    <div class="modal-body">
+
+      <!-- ── Section 1: Normalization ── -->
+      <div class="modal-sec">
+        <p class="modal-sec-title">Unicode normalization</p>
+        <div class="norm-card">
+          <div class="nc-copy">
+            Applied before matching. Should match the setting used in the
+            Table Editor — if unsure, leave it as <b>NFD</b>.
+          </div>
+          <div class="norm-opts" id="modal-norm-opts"><!-- filled by JS --></div>
+        </div>
+        <div class="norm-explain" id="modal-norm-explain" style="margin-top:12px">
+          <span class="nx-ic">💡</span>
+          <div id="modal-norm-explain-body"></div>
+        </div>
+      </div>
+
+      <div class="modal-div"></div>
+
+      <!-- ── Section 2: Table source ── -->
+      <div class="modal-sec">
+        <p class="modal-sec-title">Control table</p>
+
+        <!-- Option A: from Table Editor (localStorage) -->
+        <div class="source-card" id="storage-card">
+          <span class="sc-ic">🗂</span>
+          <div class="sc-body">
+            <div class="sc-title">Load from Table Editor</div>
+            <div class="sc-detail" id="storage-detail">Checking…</div>
+          </div>
+          <span class="sc-badge" id="storage-badge">—</span>
+          <button class="btn btn-ghost btn-sm" id="btn-load-storage">Load</button>
+        </div>
+
+        <!-- Option B: drop / browse a CSV -->
+        <div class="source-card" id="csv-card">
+          <span class="sc-ic">📄</span>
+          <div class="sc-body">
+            <div class="sc-title">Load from CSV file</div>
+            <div class="sc-detail" id="csv-detail">Drop a .csv file here, or click Browse</div>
+          </div>
+          <span class="sc-badge" id="csv-badge" hidden></span>
+          <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+            Browse<input type="file" id="modal-csv-input" accept=".csv" style="display:none">
+          </label>
+        </div>
+        <!-- CSV invisible drop target overlaid on the csv-card -->
+      </div>
+
+    </div><!-- /.modal-body -->
+
+    <div class="modal-foot">
+      <span class="modal-foot-status" id="modal-status">No table selected</span>
+      <button class="btn btn-ghost" id="btn-modal-cancel">Cancel</button>
+      <button class="btn btn-blue"  id="btn-modal-apply">Apply</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Page body ─────────────────────────────────────────── -->
+<div id="page-body">
+<div style="padding:26px 26px 60px;max-width:960px">
+
+  <!-- Active table status bar -->
+  <div style="display:flex;align-items:center;gap:14px;margin-bottom:26px;flex-wrap:wrap">
+    <span id="table-pill" class="table-pill missing">⚠ No table loaded</span>
+    <span id="table-detail" style="font-size:13px;color:var(--muted)"></span>
+    <button class="btn btn-ghost btn-sm" id="btn-configure" style="margin-left:auto">
+      ⚙ Configure table
+    </button>
+  </div>
+
+  <!-- Step 1: XML files -->
+  <div class="step">
+    <div class="step-tag">
+      <span class="step-num">1</span>
+      <h2>Drop your XML files</h2>
+    </div>
+    <div class="dropzone" id="xml-dropzone" style="cursor:pointer">
+      <div class="dz-ic">📁</div>
+      <div class="dz-main">Drop ALTO / PAGE XML files or a folder — or click to browse</div>
+      <div class="dz-sub" id="xml-drop-sub">No files selected</div>
+    </div>
+    <input type="file" id="xml-files" accept=".xml" multiple webkitdirectory hidden>
+  </div>
+
+  <!-- Step 2: Check or Convert -->
+  <div class="step">
+    <div class="step-tag">
+      <span class="step-num">2</span>
+      <h2>Check or convert</h2>
+    </div>
+    <div class="norm-card" style="grid-template-columns:1fr 1fr;gap:0;padding:0;overflow:hidden">
+      <div style="padding:20px 22px;border-right:1px solid var(--line)">
+        <h3 style="margin:0 0 6px;font-size:16px;font-weight:700">Check</h3>
+        <p style="margin:0 0 14px;font-size:13.5px;color:var(--ink-soft)">
+          Scans the files and lists every line that contains characters
+          not covered by your table. Nothing is written — read-only.
+        </p>
+        <button class="btn btn-blue" id="btn-run-check">Run check</button>
+      </div>
+      <div style="padding:20px 22px">
+        <h3 style="margin:0 0 6px;font-size:16px;font-weight:700">Convert &amp; Download</h3>
+        <p style="margin:0 0 14px;font-size:13.5px;color:var(--ink-soft)">
+          Applies all replacement rules, generates a
+          <code style="font-family:var(--mono)">.chocomufin.xml</code> for each input
+          with changes logged — downloaded directly in your browser.
+        </p>
+        <button class="btn btn-green" id="btn-run-convert">Convert &amp; Download</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div id="results-wrap">
+    <p class="info-msg">Results will appear here after you run a check or conversion.</p>
+  </div>
+
+</div>
+</div>
+
+</div><!-- /.app -->
+
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script type="module">
+import { Translator, Replacement, getHex } from './src/index.js';
+import { detectParser } from './src/parsers.js';
+
+// ── Norm definitions ────────────────────────────────────────
+const NORMS = [
+  { key: 'NFD',  sub: 'Decompose',      blurb: 'Canonical decomposition — splits precomposed letters like <code>é</code> into base + combining mark. Recommended for manuscript transcription.' },
+  { key: 'NFC',  sub: 'Compose',        blurb: 'Canonical composition — joins base + combining mark into a single code point where possible. Preferred when downstream tools expect precomposed forms.' },
+  { key: 'NFKD', sub: 'Compat decomp',  blurb: 'Like NFD but also expands compatibility characters (<code>ﬁ</code> → <code>fi</code>). Use when you want to normalise ligatures away.' },
+  { key: 'NFKC', sub: 'Compat compose', blurb: 'Like NFC but with compatibility expansion too. Broadest normalisation; may lose fine distinctions in historical texts.' },
+  { key: '',     sub: 'None',           blurb: 'No normalisation. Characters are matched exactly as typed. Use only if your source text is already in a consistent encoding.' },
+];
+
+// ── Active state ────────────────────────────────────────────
+let rules      = [];
+let translator = null;
+let norm       = 'NFD';
+let fileName   = '';
+let xmlFiles   = [];
+
+// ── Pending state (inside modal, before Apply) ───────────────
+let pendingNorm      = 'NFD';
+let pendingRules     = null;  // null = nothing selected yet
+let pendingFileName  = '';
+let pendingSource    = null;  // 'storage' | 'csv'
+
+// ── Helpers ─────────────────────────────────────────────────
+const escHtml = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const charHex = c => 'U+' + getHex(c);
+
+function rebuildTranslator() {
+  translator = rules.length ? new Translator([...rules], norm || null) : null;
+}
+
+function parseStoredRules(saved) {
+  return saved.rules.map(r => {
+    const isRegex = r.regex === 'true' || r.regex === true;
+    const isAllow = r.allow === 'true' || r.allow === true;
+    return new Replacement({ char: r.char, replacement: r.replacement || '', regex: isRegex, allow: isAllow, record: r });
+  });
+}
+
+// ── Active table status bar ──────────────────────────────────
+function refreshStatusBar() {
+  const pill   = document.getElementById('table-pill');
+  const detail = document.getElementById('table-detail');
+  if (translator && rules.length) {
+    pill.textContent = `✓ ${rules.length} rule${rules.length !== 1 ? 's' : ''} loaded`;
+    pill.className = 'table-pill';
+    detail.innerHTML = `Norm: <b style="font-family:var(--mono)">${norm || 'none'}</b>${fileName ? ` · ${escHtml(fileName)}` : ''}`;
+  } else {
+    pill.textContent = '⚠ No table loaded';
+    pill.className = 'table-pill missing';
+    detail.innerHTML = 'Open the modal to configure a table.';
+  }
+}
+
+// ── Modal ────────────────────────────────────────────────────
+function openModal() {
+  // Reset pending to current active state
+  pendingNorm      = norm;
+  pendingRules     = rules.length ? rules : null;
+  pendingFileName  = fileName;
+  pendingSource    = rules.length ? 'active' : null;
+
+  buildModalNormCards();
+  refreshStorageCard();
+  refreshCsvCard();
+  refreshModalStatus();
+
+  document.getElementById('modal-backdrop').hidden = false;
+}
+
+function closeModal() {
+  document.getElementById('modal-backdrop').hidden = true;
+}
+
+function applyModal() {
+  if (!pendingRules || !pendingRules.length) {
+    refreshModalStatus('err', 'Select a table source first.');
+    return;
+  }
+  norm     = pendingNorm;
+  rules    = pendingRules;
+  fileName = pendingFileName;
+  rebuildTranslator();
+  refreshStatusBar();
+  closeModal();
+}
+
+document.getElementById('btn-configure').addEventListener('click', openModal);
+document.getElementById('btn-modal-close').addEventListener('click', closeModal);
+document.getElementById('btn-modal-cancel').addEventListener('click', closeModal);
+document.getElementById('btn-modal-apply').addEventListener('click', applyModal);
+
+// Close on backdrop click
+document.getElementById('modal-backdrop').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+
+// Close on Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !document.getElementById('modal-backdrop').hidden) closeModal();
+});
+
+// ── Modal: normalization cards ───────────────────────────────
+function buildModalNormCards() {
+  const el = document.getElementById('modal-norm-opts');
+  if (!el.children.length) {
+    el.innerHTML = NORMS.map(n => `
+      <div class="norm-opt" data-norm="${n.key}">
+        <div class="no-key">${n.key || 'None'}</div>
+        <div class="no-sub">${n.sub}</div>
+      </div>`).join('');
+    el.addEventListener('click', e => {
+      const card = e.target.closest('.norm-opt');
+      if (!card) return;
+      pendingNorm = card.dataset.norm;
+      el.querySelectorAll('.norm-opt').forEach(c => c.classList.toggle('on', c.dataset.norm === pendingNorm));
+      refreshModalNormExplain();
+    });
+  }
+  el.querySelectorAll('.norm-opt').forEach(c => c.classList.toggle('on', c.dataset.norm === pendingNorm));
+  refreshModalNormExplain();
+}
+
+function refreshModalNormExplain() {
+  const n = NORMS.find(x => x.key === pendingNorm) || NORMS[0];
+  document.getElementById('modal-norm-explain-body').innerHTML =
+    `<b style="font-family:var(--mono);color:var(--choco)">${n.key || 'None'}</b> — ${n.blurb}`;
+}
+
+// ── Modal: storage source card ───────────────────────────────
+function refreshStorageCard() {
+  const card   = document.getElementById('storage-card');
+  const detail = document.getElementById('storage-detail');
+  const badge  = document.getElementById('storage-badge');
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem('cm_table') || 'null'); } catch {}
+
+  if (stored && stored.rules?.length) {
+    detail.textContent = `${stored.rules.length} rules · norm: ${stored.norm || 'none'}${stored.fileName ? ` · ${stored.fileName}` : ''}`;
+    badge.textContent  = `${stored.rules.length} rules`;
+    badge.hidden       = false;
+    card.classList.remove('missing');
+  } else {
+    detail.textContent = 'No table found — open the Table Editor and create or load one first.';
+    badge.hidden       = true;
+    card.classList.add('missing');
+  }
+
+  if (pendingSource === 'storage') card.classList.add('active');
+  else card.classList.remove('active');
+}
+
+document.getElementById('btn-load-storage').addEventListener('click', () => {
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem('cm_table') || 'null'); } catch {}
+  if (!stored || !stored.rules?.length) {
+    refreshModalStatus('err', 'No table found in the Table Editor.');
+    return;
+  }
+  pendingRules    = parseStoredRules(stored);
+  pendingFileName = stored.fileName || '';
+  pendingNorm     = stored.norm || 'NFD';
+  pendingSource   = 'storage';
+
+  // Sync norm cards to the loaded norm
+  document.getElementById('modal-norm-opts').querySelectorAll('.norm-opt').forEach(c =>
+    c.classList.toggle('on', c.dataset.norm === pendingNorm));
+  refreshModalNormExplain();
+
+  refreshStorageCard();
+  refreshCsvCard();
+  refreshModalStatus('ok', `${pendingRules.length} rules loaded from Table Editor.`);
+});
+
+// ── Modal: CSV source card ───────────────────────────────────
+function refreshCsvCard() {
+  const card = document.getElementById('csv-card');
+  const badge = document.getElementById('csv-badge');
+  if (pendingSource === 'csv') {
+    card.classList.add('active');
+    badge.textContent = `${pendingRules?.length ?? 0} rules`;
+    badge.hidden = false;
+  } else {
+    card.classList.remove('active');
+    badge.hidden = true;
+  }
+  document.getElementById('storage-card').classList.toggle('active', pendingSource === 'storage');
+}
+
+// CSV drop onto card
+const csvCard = document.getElementById('csv-card');
+csvCard.addEventListener('dragover',  e => { e.preventDefault(); csvCard.classList.add('active'); });
+csvCard.addEventListener('dragleave', () => { if (pendingSource !== 'csv') csvCard.classList.remove('active'); });
+csvCard.addEventListener('drop', async e => {
+  e.preventDefault();
+  const file = [...e.dataTransfer.files].find(f => f.name.endsWith('.csv'));
+  if (file) await loadModalCSV(file);
+  else { csvCard.classList.remove('active'); }
+});
+
+document.getElementById('modal-csv-input').addEventListener('change', async e => {
+  if (e.target.files[0]) await loadModalCSV(e.target.files[0]);
+});
+
+async function loadModalCSV(file) {
+  try {
+    const text = await file.text();
+    const tr   = Translator.parse(text, pendingNorm || null);
+    pendingRules    = [...tr.controlTable];
+    pendingFileName = file.name;
+    pendingSource   = 'csv';
+    document.getElementById('csv-detail').textContent = `${pendingRules.length} rules · ${file.name}`;
+    refreshCsvCard();
+    refreshModalStatus('ok', `${pendingRules.length} rules loaded from ${file.name}.`);
+  } catch (err) {
+    refreshModalStatus('err', 'Error reading CSV: ' + err.message);
+  }
+}
+
+// ── Modal: foot status ───────────────────────────────────────
+function refreshModalStatus(kind, msg) {
+  const el = document.getElementById('modal-status');
+  if (!kind) {
+    el.className = 'modal-foot-status';
+    el.textContent = pendingRules?.length
+      ? `${pendingRules.length} rules ready`
+      : 'No table selected';
+    return;
+  }
+  el.className = 'modal-foot-status ' + kind;
+  el.textContent = msg;
+}
+
+// ── XML file drop zone (page-level) ─────────────────────────
+const dz = document.getElementById('xml-dropzone');
+dz.addEventListener('click', () => document.getElementById('xml-files').click());
+dz.addEventListener('dragover',  e => { e.preventDefault(); dz.classList.add('hot'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('hot'));
+dz.addEventListener('drop', e => {
+  e.preventDefault(); dz.classList.remove('hot');
+  xmlFiles = [...e.dataTransfer.files].filter(f => f.name.endsWith('.xml') && !f.name.endsWith('.chocomufin.xml'));
+  updateDropSub();
+});
+document.getElementById('xml-files').addEventListener('change', e => {
+  xmlFiles = Array.from(e.target.files).filter(f => f.name.endsWith('.xml') && !f.name.endsWith('.chocomufin.xml'));
+  updateDropSub();
+});
+function updateDropSub() {
+  document.getElementById('xml-drop-sub').textContent =
+    xmlFiles.length ? `${xmlFiles.length} file${xmlFiles.length !== 1 ? 's' : ''} selected` : 'No files selected';
+}
+
+// ── Grapheme-aware inline diff ───────────────────────────────
+// Splits a string into grapheme clusters using Intl.Segmenter when
+// available, falling back to grouping base char + combining marks.
+// This ensures NFD-encoded text (e + ◌́ = é) diffs at the visible
+// character level, not the code-point level.
+function graphemeClusters(str) {
+  if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+    return [...new Intl.Segmenter().segment(str)].map(s => s.segment);
+  }
+  // Fallback: attach combining marks to the preceding base character
+  const COMB = /^[̀-ͯؐ-ًؚ-ٟ᪰-᫿᷀-᷿⃐-⃿︠-︯]/;
+  const out = [];
+  for (const ch of str) {
+    if (out.length && COMB.test(ch)) out[out.length - 1] += ch;
+    else out.push(ch);
+  }
+  return out;
+}
+
+// LCS-based diff returning [{type:'eq'|'del'|'ins', text}]
+function lcsDiff(a, b) {
+  const m = a.length, n = b.length;
+  // Safety valve for very long lines — skip detailed diff
+  if (m * n > 40000) {
+    return a.map(t => ({ type: 'del', text: t })).concat(b.map(t => ({ type: 'ins', text: t })));
+  }
+  const dp = Array.from({ length: m + 1 }, () => new Uint16Array(n + 1));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] + 1 : Math.max(dp[i-1][j], dp[i][j-1]);
+  const ops = [];
+  let i = m, j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && a[i-1] === b[j-1]) { ops.push({ type: 'eq',  text: a[i-1] }); i--; j--; }
+    else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) { ops.push({ type: 'ins', text: b[j-1] }); j--; }
+    else { ops.push({ type: 'del', text: a[i-1] }); i--; }
+  }
+  return ops.reverse();
+}
+
+// Renders an inline diff as HTML. Both strings are normalised to NFC
+// before diffing so that combining diacritics are composed into single
+// code points — this makes changes like é→e visible rather than
+// hiding them when source is NFD and output is NFC (or vice versa).
+function renderInlineDiff(before, after) {
+  const a = graphemeClusters(before.normalize('NFC'));
+  const b = graphemeClusters(after.normalize('NFC'));
+  return lcsDiff(a, b).map(({ type, text }) => {
+    const t = escHtml(text);
+    if (type === 'del') return `<del class="diff-del">${t}</del>`;
+    if (type === 'ins') return `<ins class="diff-ins">${t}</ins>`;
+    return t;
+  }).join('');
+}
+
+// ── Guards ───────────────────────────────────────────────────
+function guardReady() {
+  if (!translator) { openModal(); return false; }
+  if (!xmlFiles.length) { alert('Drop or select XML files first.'); return false; }
+  return true;
+}
+
+function errBlock(name, msg) {
+  return `<div class="file-block"><div class="file-block-hdr">⚠️ ${escHtml(name)} <span class="file-badge warn">error</span></div>
+    <div class="line-row" style="color:var(--red)">${escHtml(msg)}</div></div>`;
+}
+
+function highlightUnknown(text, unkSet) {
+  return [...text].map(ch =>
+    unkSet.has(ch) ? `<mark class="unk" title="${charHex(ch)}">${escHtml(ch)}</mark>` : escHtml(ch)
+  ).join('');
+}
+
+// ── Check ────────────────────────────────────────────────────
+document.getElementById('btn-run-check').addEventListener('click', async () => {
+  if (!guardReady()) return;
+  const wrap = document.getElementById('results-wrap');
+  wrap.innerHTML = '<p class="info-msg">Checking…</p>';
+  const blocks = [];
+  for (const file of xmlFiles) {
+    let text; try { text = await file.text(); } catch { blocks.push(errBlock(file.name,'Cannot read file')); continue; }
+    const Cls = detectParser(text);
+    if (!Cls) { blocks.push(errBlock(file.name,'Unrecognised format (not ALTO or PAGE)')); continue; }
+    let issues = [];
+    try {
+      const p = new Cls(text, file.name);
+      for (const { id, text: line } of p.getLines()) {
+        const unk = translator.getUnknownChars(line, norm || null);
+        if (unk.size) issues.push({ id, line, unk });
+      }
+    } catch(err) { blocks.push(errBlock(file.name, err.message)); continue; }
+    const badge = issues.length
+      ? `<span class="file-badge warn">${issues.length} issue${issues.length>1?'s':''}</span>`
+      : `<span class="file-badge ok">✓ clean</span>`;
+    blocks.push(`<div class="file-block"><div class="file-block-hdr">📄 ${escHtml(file.name)} ${badge}</div>
+      ${issues.map(({id,line,unk}) => `<div class="line-row">
+        <div class="line-id">${escHtml(id||'(no id)')}</div>
+        <div class="line-text">${highlightUnknown(line,unk)}</div>
+        <div class="unk-chips">Unknown: ${[...unk].map(c=>`<code style="font-family:var(--mono)" title="${charHex(c)}">${escHtml(c)}</code>`).join(' ')}</div>
+      </div>`).join('')}</div>`);
+  }
+  wrap.innerHTML = blocks.join('') || '<p class="info-msg">No results.</p>';
+});
+
+// ── Convert ──────────────────────────────────────────────────
+document.getElementById('btn-run-convert').addEventListener('click', async () => {
+  if (!guardReady()) return;
+  const wrap = document.getElementById('results-wrap');
+  wrap.innerHTML = '<p class="info-msg">Converting…</p>';
+  const blocks = [];
+  const zip = new JSZip();
+  let totalChanged = 0;
+
+  for (const file of xmlFiles) {
+    let text; try { text = await file.text(); } catch { blocks.push(errBlock(file.name,'Cannot read file')); continue; }
+    const Cls = detectParser(text);
+    if (!Cls) { blocks.push(errBlock(file.name,'Unrecognised format')); continue; }
+    let changes = [], outputXml;
+    try {
+      const p = new Cls(text, file.name);
+      for (const { id, text: line, element } of p.getLines()) {
+        const out = translator.translate(line, norm || null);
+        if (out !== line) { p.setContent(element, out); p.addLog(id, line, out); changes.push({id, before:line, after:out}); }
+      }
+      outputXml = p.serialize();
+    } catch(err) { blocks.push(errBlock(file.name, err.message)); continue; }
+
+    // Preserve folder structure using webkitRelativePath when available
+    const relPath = file.webkitRelativePath || file.name;
+    const outPath = relPath.replace(/\.xml$/i, '.chocomufin.xml');
+    zip.file(outPath, outputXml);
+    totalChanged += changes.length;
+
+    const badge = changes.length
+      ? `<span class="file-badge dl">${changes.length} change${changes.length>1?'s':''}</span>`
+      : `<span class="file-badge ok">no changes</span>`;
+    blocks.push(`<div class="file-block"><div class="file-block-hdr">
+        📄 ${escHtml(relPath)} ${badge}
+      </div>
+      ${changes.map(({id,before,after}) => `<div class="log-row">
+        <div class="log-line-id">${escHtml(id||'?')}</div>
+        <div class="log-diff">${renderInlineDiff(before, after)}</div>
+      </div>`).join('')}</div>`);
+  }
+
+  const zipBlob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
+  const zipUrl = URL.createObjectURL(zipBlob);
+  setTimeout(() => URL.revokeObjectURL(zipUrl), 300000);
+
+  const summary = `<div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;padding:12px 16px;background:var(--allow-bg);border:1px solid #b5dfc5;border-radius:var(--radius)">
+    <span style="font-weight:600;color:var(--green-dark)">✓ ${xmlFiles.length} file${xmlFiles.length!==1?'s':''} converted · ${totalChanged} change${totalChanged!==1?'s':''}</span>
+    <a class="dl-btn" href="${zipUrl}" download="chocomufin-converted.zip" style="margin-left:auto">⬇ Download ZIP</a>
+  </div>`;
+
+  wrap.innerHTML = summary + (blocks.join('') || '<p class="info-msg">No results.</p>');
+});
+
+// ── Init ─────────────────────────────────────────────────────
+(function init() {
+  // Try to auto-load from localStorage on first visit
+  let stored = null;
+  try { stored = JSON.parse(localStorage.getItem('cm_table') || 'null'); } catch {}
+  if (stored && stored.rules?.length) {
+    norm     = stored.norm || 'NFD';
+    fileName = stored.fileName || '';
+    rules    = parseStoredRules(stored);
+    rebuildTranslator();
+  }
+  refreshStatusBar();
+  // Open modal automatically if no table was found
+  if (!translator) openModal();
+})();
+</script>
+</body>
+</html>

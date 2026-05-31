@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Choco-Mufin — Table Editor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&display=swap">
+<link rel="stylesheet" href="./design/styles.css">
+<style>
+@font-face {
+  font-family: 'Junicode';
+  src: url('https://cdn.jsdelivr.net/gh/psb1558/Junicode-font@main/webfonts/JunicodeVF-Roman.woff2') format('woff2');
+  font-weight: 100 900; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'Junicode';
+  src: url('https://cdn.jsdelivr.net/gh/psb1558/Junicode-font@main/webfonts/JunicodeVF-Italic.woff2') format('woff2');
+  font-weight: 100 900; font-style: italic; font-display: swap;
+}
+:root { --serif: "Source Serif 4", "Junicode", Georgia, serif; }
+
+[hidden] { display: none !important; }
+
+/* ── Fixed-height viewport layout ───────────────────────── */
+html, body { height: 100%; overflow: hidden; }
+.app { height: 100%; display: flex; flex-direction: column; overflow: hidden; }
+
+/* app fills: header → editor (flex column) */
+#app-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* toolbar: always visible, never scrolls */
+#toolbar { flex-shrink: 0; position: static; }
+
+/* body-area fills remaining height and clips */
+#body-area {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ── Solo mode (entry screen): single scrolling column ── */
+#body-area.solo {
+  display: block !important;   /* override .body grid */
+  overflow-y: auto;
+}
+
+/* ── Grid mode (table view): two independent scrolling columns ── */
+#body-area:not(.solo) {
+  display: grid !important;
+  grid-template-columns: minmax(0,1fr) 396px;
+  align-items: stretch !important;  /* override align-items: start */
+}
+#body-area:not(.solo) .main { overflow-y: auto; }
+
+/* rail: not sticky, just its own scrolling column */
+#rail {
+  position: static !important;
+  overflow-y: auto;
+  min-height: unset !important;
+}
+
+/* ── Misc ── */
+.rail h2 { font-size: 17px; font-weight: 700; margin: 0 0 4px; color: var(--ink); }
+#flash-msg { margin-bottom: 16px; }
+
+.repl-field { display: flex; align-items: center; gap: 8px; }
+.repl-field input {
+  flex: 1; min-width: 0;
+  border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px;
+  font-family: var(--serif); font-size: 14px; color: var(--ink); background: #fff;
+}
+.repl-field input:focus { outline: none; border-color: var(--blue); box-shadow: 0 0 0 3px rgba(47,114,184,.12); }
+
+.rule-detail .rd-glyph { font-family: var(--serif); font-size: 2em; line-height: 1; color: var(--ink); }
+.rule-detail .rd-cp    { font-family: var(--mono); font-size: 11px; color: var(--faint); margin-top: 2px; }
+.rule-detail .rd-row   { font-size: 13px; color: var(--ink-soft); margin-top: 6px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div class="app">
+
+<!-- ── Header ─────────────────────────────────────────────── -->
+<header class="hdr">
+  <div class="hdr-brand">
+    <span class="bar">🍫</span>
+    <span>Choco-Mufin</span>
+  </div>
+  <nav class="hdr-tabs">
+    <div class="hdr-tab on">Table Editor</div>
+    <a class="hdr-tab" href="./convert.html">Check / Convert</a>
+  </nav>
+  <div class="hdr-right">
+    <a href="https://htr-united.github.io" target="_blank" rel="noopener"
+       style="color:#c6d2dc;font-size:13px;font-weight:500;text-decoration:none;opacity:.85;transition:opacity .12s"
+       onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.85">
+      HTR-United ↗
+    </a>
+    <span class="privacy" title="Choco-Mufin runs 100% in your browser — your files are never uploaded.">
+      <span class="lock">🔒</span>
+      <span>Runs in your browser · <b>no upload</b></span>
+    </span>
+  </div>
+</header>
+
+<!-- ── Table Editor ─────────────────────────────────────── -->
+<div id="app-editor">
+
+  <!-- Hidden file inputs -->
+  <input type="file" id="csv-file"     accept=".csv" hidden>
+  <input type="file" id="discover-xml" accept=".xml" multiple webkitdirectory hidden>
+
+  <!-- Toolbar — visible only when a table exists -->
+  <div class="toolbar" id="toolbar" hidden>
+    <div class="tgroup">
+      <span class="tgroup-label">Normalize</span>
+      <span class="normsel" id="normsel-wrap">
+        <select id="norm-select">
+          <option value="NFD" selected>NFD</option>
+          <option value="NFC">NFC</option>
+          <option value="NFKD">NFKD</option>
+          <option value="NFKC">NFKC</option>
+          <option value="">None</option>
+        </select>
+      </span>
+      <span class="help-dot" id="norm-lock-dot" title="Locked — start a new table to change" hidden>🔒</span>
+    </div>
+    <div class="tsep"></div>
+    <div class="tgroup">
+      <button class="btn btn-gray" id="btn-discover">🔍 Discover from files</button>
+    </div>
+    <div class="tspacer"></div>
+    <div class="tgroup">
+      <button class="btn btn-ghost btn-sm" id="btn-new-table">＋ New table</button>
+      <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+        ⤒ Load CSV…<input type="file" accept=".csv" style="display:none" id="csv-toolbar">
+      </label>
+      <button class="btn btn-blue btn-sm" id="btn-export-csv">⤓ Export CSV</button>
+    </div>
+  </div>
+
+  <!-- Body: solo (entry) ↔ grid (table + rail) -->
+  <div class="body solo" id="body-area">
+    <div class="main">
+
+      <!-- ── Entry screen ───────────────────────────────── -->
+      <div id="view-entry" class="entry">
+        <div class="entry-head">
+          <h1>Build a <span class="choco">Choco-Mufin</span> normalization table</h1>
+          <p>Decide, character by character, what to <b>allow</b>, <b>replace</b> or <b>skip</b>
+             when converting your ALTO / PAGE XML — all in your browser.</p>
+        </div>
+
+        <!-- Step 1: Normalization -->
+        <div class="step">
+          <div class="step-tag">
+            <span class="step-num">1</span>
+            <h2>Choose Unicode normalization</h2>
+            <span class="opt">— set this first</span>
+          </div>
+          <div class="norm-card">
+            <div class="nc-copy">
+              Before matching, every character is converted to a Unicode <b>normal form</b>.
+              This decides whether an accented letter is treated as <b>one character</b> or as a
+              <b>base letter plus a combining mark</b>. Pick it now — it shapes every rule you write.
+            </div>
+            <div class="norm-opts" id="norm-opts"><!-- filled by JS --></div>
+          </div>
+          <div class="norm-explain" id="norm-explain">
+            <span class="nx-ic">💡</span>
+            <div id="norm-explain-body"></div>
+          </div>
+        </div>
+
+        <!-- Step 2: Two paths -->
+        <div class="step">
+          <div class="step-tag">
+            <span class="step-num">2</span>
+            <h2>Start fresh, or load a table you already have</h2>
+          </div>
+          <div class="paths">
+            <div class="path">
+              <div class="path-ic new">✏️</div>
+              <h3>Start a new table</h3>
+              <p>Tick the character ranges you want to <b>allow as-is</b>, then create.
+                 You can refine rule-by-rule afterwards.</p>
+              <div class="ranges" id="range-list"><!-- filled by JS --></div>
+              <button class="btn btn-choco btn-lg" id="btn-create-ranges">Create table</button>
+            </div>
+            <div class="path">
+              <div class="path-ic load">📂</div>
+              <h3>Load an existing table</h3>
+              <p>Already have a control table? Drop your <b>.csv</b> here to keep editing it —
+                 rules, replacements and flags are restored.</p>
+              <div class="dropzone" id="csv-dropzone">
+                <div class="dz-ic">⬇︎</div>
+                <div class="dz-main">Drop a CSV file or click to browse</div>
+                <div class="dz-sub">Accepts the Choco-Mufin CSV format</div>
+              </div>
+              <div style="font-size:12.5px;color:var(--muted);text-align:center">
+                — or —<br>
+                <a style="color:var(--blue);cursor:pointer;font-weight:600" id="entry-discover-link">
+                  🔍 Discover characters from XML files
+                </a><br>
+                <span style="font-size:11.5px">scan your corpus first, build the table around what's really there</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Step 3: Discover & check preview -->
+        <div class="step">
+          <div class="step-tag">
+            <span class="step-num">3</span>
+            <h2>Discover &amp; check your files</h2>
+            <span class="opt">— unlocks once a table exists</span>
+          </div>
+          <div class="next-card">
+            <div class="next-item">
+              <div class="next-ic">🔍</div>
+              <div>
+                <h4>Discover from files</h4>
+                <p>Drop ALTO / PAGE XML <b>any time</b> and Choco-Mufin lists every character your
+                   table doesn't cover yet — decide <b>allow</b>, <b>replace</b> or <b>skip</b> for each.</p>
+              </div>
+            </div>
+            <div class="next-sep"></div>
+            <div class="next-item">
+              <div class="next-ic">▶</div>
+              <div>
+                <h4>Check &amp; convert</h4>
+                <p>Run your finished table over the corpus to flag anything still uncovered, then
+                   <b>convert</b> and download the cleaned XML — in the browser.</p>
+              </div>
+            </div>
+          </div>
+          <div class="next-note">
+            Create or load a table above first — then Discover appears in the toolbar and under your
+            table, and Check / Convert opens as its own page.
+          </div>
+        </div>
+
+        <div class="entry-foot">
+          <span>🔒</span>
+          <span>Files never leave your device — every step runs locally in your browser.</span>
+        </div>
+      </div><!-- /#view-entry -->
+
+      <!-- ── Rule table view ────────────────────────────── -->
+      <div id="view-table" hidden>
+
+        <div class="flash" id="flash-msg" hidden></div>
+
+        <div class="tablecard">
+          <table class="rules" id="rule-table">
+            <thead>
+              <tr>
+                <th>#</th><th>Char</th><th>Name</th>
+                <th>Replacement</th><th>Flags</th><th></th>
+              </tr>
+            </thead>
+            <tbody id="rule-tbody"></tbody>
+          </table>
+        </div>
+        <button class="btn btn-green addrow" id="btn-add-row">＋ Add row</button>
+
+        <!-- Discover banner -->
+        <div class="disc-banner" id="disc-banner">
+          <span class="db-ic">🔍</span>
+          <div class="db-txt">
+            <b>Have ALTO or PAGE XML?</b> Drop files here — or click — <b>any time</b>
+            to find characters your table doesn't cover yet.
+          </div>
+          <button class="btn btn-gray btn-sm db-cta">Discover from files</button>
+        </div>
+
+        <!-- Uncovered panel -->
+        <div class="uncovered" id="uncovered-panel" hidden>
+          <div class="unc-head">
+            <span style="font-size:18px">⚠️</span>
+            <span class="uh-title" id="unc-title"></span>
+            <span style="font-size:12.5px;color:#a07a2e" id="unc-context"></span>
+            <div class="uh-acts">
+              <button class="btn btn-green btn-sm" id="btn-allow-all-unc">Allow all</button>
+              <button class="btn btn-ghost btn-sm" id="btn-dismiss-unc">Dismiss</button>
+            </div>
+          </div>
+          <div class="unc-list" id="unc-list"></div>
+        </div>
+
+      </div><!-- /#view-table -->
+    </div><!-- /.main -->
+
+    <!-- ── Rail ──────────────────────────────────────────── -->
+    <aside class="rail" id="rail" hidden>
+
+      <div class="rail-file">
+        <div class="rf-head">
+          <span class="rf-title">Table</span>
+          <span class="rf-meta" id="rail-meta">0 rules · untitled</span>
+        </div>
+        <div class="rf-actions">
+          <button class="btn btn-ghost btn-sm" id="rail-btn-new">＋ New table</button>
+          <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+            ⤒ Load CSV…<input type="file" accept=".csv" style="display:none" id="csv-rail">
+          </label>
+          <button class="btn btn-blue btn-sm" id="rail-btn-export">⤓ Export CSV</button>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div id="edit-section">
+        <h2 id="edit-title">Rule editor</h2>
+        <p class="hint" id="edit-hint">Select a row to view details, or click "＋ Add row".</p>
+
+        <div id="view-panel" hidden>
+          <div id="rule-detail" style="margin-bottom:12px"></div>
+          <div style="display:flex;gap:8px;margin-bottom:16px">
+            <button class="btn btn-blue btn-sm"  id="btn-edit-sel">Edit</button>
+            <button class="btn btn-ghost btn-sm" id="btn-del-sel" style="color:var(--red)">Delete</button>
+          </div>
+        </div>
+
+        <div id="edit-form" hidden>
+          <div class="field">
+            <label>Character(s) or pattern</label>
+            <input type="text" id="edit-char" placeholder="e.g.  ẏ  or  [a-z]">
+          </div>
+          <div class="field">
+            <label>Replacement <span class="meta">— empty = allow as-is</span></label>
+            <input type="text" id="edit-repl" placeholder="empty = remove / allow">
+          </div>
+          <div class="field">
+            <label>Name <span class="meta">(metadata)</span></label>
+            <input type="text" id="edit-name" placeholder="Human-readable name" style="font-family:var(--sans)">
+          </div>
+          <div class="checks">
+            <label class="chk"><input type="checkbox" id="edit-regex"> Regex</label>
+            <label class="chk"><input type="checkbox" id="edit-allow"> Allow (keep as-is)</label>
+          </div>
+          <div class="rail-actions">
+            <button class="btn btn-blue"  id="btn-save-row">Save</button>
+            <button class="btn btn-ghost" id="btn-cancel-edit">Cancel</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="divider"></div>
+
+      <div>
+        <h2>Full-table test</h2>
+        <p class="hint" style="font-style:normal;font-size:12.5px">Paste a line to see how your table transforms it.</p>
+        <textarea class="test-box" id="input-text" placeholder="Paste text here…"></textarea>
+        <div class="test-actions">
+          <button class="btn btn-blue btn-sm"  id="btn-translate">Translate</button>
+          <button class="btn btn-green btn-sm" id="btn-check-text">Check</button>
+          <button class="btn btn-ghost btn-sm" id="btn-clear-full">Clear</button>
+        </div>
+        <div class="test-result placeholder" id="result-box">Result will appear here.</div>
+      </div>
+
+    </aside>
+  </div><!-- /#body-area -->
+</div><!-- #app-editor -->
+
+<!-- Toast -->
+<div class="toast" id="toast" hidden></div>
+
+</div><!-- /.app -->
+
+<script type="module">
+import { Translator, Replacement, getHex } from './src/index.js';
+import { detectParser } from './src/parsers.js';
+
+// ── Norm definitions ────────────────────────────────────────
+const NORMS = [
+  { key: 'NFD',  sub: 'Decompose',      blurb: 'Canonical decomposition — splits precomposed letters like <code>é</code> into a base letter <code>e</code> plus a combining accent <code>◌́</code>. Recommended for manuscript transcription.' },
+  { key: 'NFC',  sub: 'Compose',        blurb: 'Canonical composition — joins base + combining mark into a single code point where possible. Preferred when downstream tools expect precomposed forms.' },
+  { key: 'NFKD', sub: 'Compat decomp',  blurb: 'Like NFD but also expands compatibility characters (<code>ﬁ</code> → <code>fi</code>). Use when you want to normalise ligatures away.' },
+  { key: 'NFKC', sub: 'Compat compose', blurb: 'Like NFC but with compatibility expansion too. Broadest normalisation; may lose fine distinctions in historical texts.' },
+  { key: '',     sub: 'None',           blurb: 'No normalisation. Characters are matched exactly as typed. Use only if your source text is already in a consistent encoding.' },
+];
+
+const RANGES = [
+  { id: 0, char: '[a-zA-Z]',                             name: 'Basic Latin letters (a–z, A–Z)',   regex: true,  on: true  },
+  { id: 1, char: '[0-9]',                                name: 'Digits (0–9)',                     regex: true,  on: true  },
+  { id: 2, char: ' ',                                    name: 'Space',                            regex: false, on: true, literalSpace: true },
+  { id: 3, char: String.raw`[.,;:!?\-]`,                 name: 'Common punctuation . , ; : ! ? -', regex: true,  on: false },
+  { id: 4, char: String.raw`['"""«»\(\)\[\]]`,          name: 'Quotation marks & brackets',       regex: true,  on: false },
+  { id: 5, char: '[àáâãäåæçèéêëìíîïðñòóôõöùúûüýþÿœ]', name: 'Extended Latin lowercase',         regex: true,  on: false },
+  { id: 6, char: '[ÀÁÂÃÄÅÆÇÈÉÊËÌÍÎÏÐÑÒÓÔÕÖÙÚÛÜÝÞŸŒ]', name: 'Extended Latin uppercase',         regex: true,  on: false },
+];
+
+// ── State ───────────────────────────────────────────────────
+let rules       = [];
+let translator  = null;
+let norm        = 'NFD';
+let editIdx     = null;
+let selectedIdx = null;
+let fileName    = '';
+let discoverItems = [];
+let discoverCtx   = '';
+
+// ── Helpers ─────────────────────────────────────────────────
+const escHtml = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const charHex = c => 'U+' + getHex(c);
+const toCodepoints = str => [...(str || '')].map(charHex).join(' ');
+
+function rebuildTranslator() { translator = new Translator([...rules], norm || null); }
+
+function blobDownload(filename, text, mime = 'text/plain;charset=utf-8') {
+  const blob = new Blob([text], { type: mime });
+  const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: filename });
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+function showToast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = '✓ ' + msg; el.hidden = false;
+  clearTimeout(window.__cmToast);
+  window.__cmToast = setTimeout(() => { el.hidden = true; }, 2200);
+}
+
+function setFlash(msg) {
+  const el = document.getElementById('flash-msg');
+  if (msg) { el.textContent = '✓ ' + msg; el.hidden = false; }
+  else      { el.hidden = true; }
+}
+
+function updateRailMeta() {
+  document.getElementById('rail-meta').textContent =
+    `${rules.length} rule${rules.length === 1 ? '' : 's'} · ${fileName || 'untitled'}`;
+}
+
+// ── localStorage persistence (so convert.html can read the table) ──
+function saveTable() {
+  if (!rules.length) { localStorage.removeItem('cm_table'); return; }
+  localStorage.setItem('cm_table', JSON.stringify({
+    norm, fileName,
+    rules: rules.map(r => r.asDict()),
+  }));
+}
+
+// ── View switching ──────────────────────────────────────────
+function showEntry() {
+  document.getElementById('view-entry').hidden = false;
+  document.getElementById('view-table').hidden = true;
+  document.getElementById('toolbar').hidden    = true;
+  document.getElementById('rail').hidden       = true;
+  document.getElementById('body-area').classList.add('solo');
+  document.getElementById('norm-select').disabled = false;
+  document.getElementById('normsel-wrap').style.opacity = '';
+  document.getElementById('norm-lock-dot').hidden = true;
+}
+
+function showTable() {
+  document.getElementById('view-entry').hidden = true;
+  document.getElementById('view-table').hidden = false;
+  document.getElementById('toolbar').hidden    = false;
+  document.getElementById('rail').hidden       = false;
+  document.getElementById('body-area').classList.remove('solo');
+  document.getElementById('norm-select').disabled = true;
+  document.getElementById('normsel-wrap').style.opacity = '0.6';
+  document.getElementById('norm-lock-dot').hidden = false;
+  updateRailMeta();
+}
+
+// ── Build entry screen ──────────────────────────────────────
+(function buildEntry() {
+  const optsEl = document.getElementById('norm-opts');
+  optsEl.innerHTML = NORMS.map(n => `
+    <div class="norm-opt${n.key === norm ? ' on' : ''}" data-norm="${n.key}">
+      <div class="no-key">${n.key || 'None'}</div>
+      <div class="no-sub">${n.sub}</div>
+    </div>`).join('');
+  refreshNormExplain();
+
+  optsEl.addEventListener('click', e => {
+    const card = e.target.closest('.norm-opt');
+    if (!card) return;
+    setNorm(card.dataset.norm);
+  });
+
+  const rangeEl = document.getElementById('range-list');
+  rangeEl.innerHTML = RANGES.map(r => `
+    <div class="range${r.on ? ' on' : ''}" data-range="${r.id}">
+      <span class="rx-box"></span>
+      <span class="rx-pat">${escHtml(r.literalSpace ? '␣ space' : r.char)}</span>
+      <span class="rx-name">${escHtml(r.name)}</span>
+    </div>`).join('');
+  refreshCreateBtn();
+
+  rangeEl.addEventListener('click', e => {
+    const row = e.target.closest('[data-range]');
+    if (!row) return;
+    const id = +row.dataset.range;
+    RANGES[id].on = !RANGES[id].on;
+    row.classList.toggle('on', RANGES[id].on);
+    refreshCreateBtn();
+  });
+})();
+
+function setNorm(value) {
+  norm = value;
+  document.querySelectorAll('#norm-opts .norm-opt').forEach(c => c.classList.toggle('on', c.dataset.norm === norm));
+  document.getElementById('norm-select').value = norm;
+  refreshNormExplain();
+  if (rules.length) { rebuildTranslator(); saveTable(); }
+}
+
+function refreshNormExplain() {
+  const n = NORMS.find(x => x.key === norm) || NORMS[0];
+  document.getElementById('norm-explain-body').innerHTML =
+    `<b style="font-family:var(--mono);color:var(--choco)">${n.key || 'None'}</b> — ${n.blurb}`;
+}
+
+function refreshCreateBtn() {
+  const count = RANGES.filter(r => r.on).length;
+  const btn = document.getElementById('btn-create-ranges');
+  btn.textContent = `Create table with ${count} range${count === 1 ? '' : 's'}`;
+  btn.disabled = count === 0;
+}
+
+// ── Norm select in toolbar ───────────────────────────────────
+document.getElementById('norm-select').addEventListener('change', e => {
+  norm = e.target.value;
+  if (rules.length) { rebuildTranslator(); saveTable(); }
+});
+
+// ── New table ────────────────────────────────────────────────
+function doNewTable() {
+  if (rules.length && !confirm('Discard current table and start fresh?')) return;
+  rules = []; translator = null; selectedIdx = null; editIdx = null;
+  discoverItems = []; fileName = '';
+  setFlash(''); resetSidePanel(); showEntry();
+  saveTable();
+}
+document.getElementById('btn-new-table').addEventListener('click', doNewTable);
+document.getElementById('rail-btn-new').addEventListener('click', doNewTable);
+
+// ── Create from ranges ───────────────────────────────────────
+document.getElementById('btn-create-ranges').addEventListener('click', () => {
+  const selected = RANGES.filter(r => r.on);
+  if (!selected.length) { alert('Select at least one range.'); return; }
+  rules = selected.map(r => new Replacement({
+    char: r.char, replacement: '', regex: r.regex, allow: true,
+    record: { char: r.char, replacement: '', name: r.name, allow: 'true', regex: r.regex ? 'true' : '' },
+  }));
+  rebuildTranslator(); fileName = ''; discoverItems = [];
+  showTable(); renderTable();
+  setFlash(`Created ${rules.length} rules from selected ranges.`);
+  saveTable();
+});
+
+// ── Load CSV ─────────────────────────────────────────────────
+async function loadCSV(file) {
+  if (!file) return;
+  try {
+    const text = await file.text();
+    translator = Translator.parse(text, norm || null);
+    rules = [...translator.controlTable];
+    rebuildTranslator(); fileName = file.name; discoverItems = [];
+    showTable(); renderTable();
+    setFlash(`Loaded ${rules.length} rules from "${file.name}"`);
+    saveTable();
+  } catch (err) {
+    alert('Error loading CSV: ' + err.message);
+  }
+}
+
+const csvDropzone = document.getElementById('csv-dropzone');
+csvDropzone.addEventListener('click', () => document.getElementById('csv-file').click());
+csvDropzone.addEventListener('dragover',  e => { e.preventDefault(); csvDropzone.classList.add('hot'); });
+csvDropzone.addEventListener('dragleave', () => csvDropzone.classList.remove('hot'));
+csvDropzone.addEventListener('drop', e => {
+  e.preventDefault(); csvDropzone.classList.remove('hot');
+  const file = [...e.dataTransfer.files].find(f => f.name.endsWith('.csv'));
+  if (file) loadCSV(file);
+});
+document.getElementById('csv-file').addEventListener('change',    e => loadCSV(e.target.files[0]));
+document.getElementById('csv-toolbar').addEventListener('change', e => loadCSV(e.target.files[0]));
+document.getElementById('csv-rail').addEventListener('change',    e => loadCSV(e.target.files[0]));
+
+document.getElementById('entry-discover-link').addEventListener('click', () => {
+  document.getElementById('discover-xml').click();
+});
+
+// ── Export CSV ───────────────────────────────────────────────
+function doExport() {
+  if (!rules.length) { alert('No rules to export.'); return; }
+  const prio  = ['char','replacement','regex','allow'];
+  const extra = [...new Set(rules.flatMap(r => Object.keys(r.record ?? {})))].filter(k => !prio.includes(k));
+  const heads = [...prio, ...extra];
+  const cell  = v => { const s = String(v ?? ''); return /[,"\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
+  const rows  = [heads.join(','), ...rules.map(r => heads.map(h => cell(r.asDict()[h] ?? '')).join(','))];
+  blobDownload((fileName || 'choco-mufin-table').replace(/\.csv$/i,'') + '.csv', rows.join('\n'), 'text/csv;charset=utf-8');
+  showToast(`Exported ${rules.length} rules`);
+}
+document.getElementById('btn-export-csv').addEventListener('click', doExport);
+document.getElementById('rail-btn-export').addEventListener('click', doExport);
+
+// ── Render rule table ────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('rule-tbody');
+  tbody.innerHTML = '';
+  rules.forEach((rule, i) => {
+    const tr = document.createElement('tr');
+    if (selectedIdx === i) tr.classList.add('sel');
+    tr.dataset.i = i;
+    const name = rule.record?.name ?? rule.record?.ontographe ?? '';
+    const repl = rule.replacement
+      ? `<span class="r-repl" style="font-family:var(--serif)">${escHtml(rule.replacement)}</span>`
+      : `<span class="r-repl empty">—</span>`;
+    const flags = [
+      rule.allow && !rule.regex ? `<span class="badge allow">allow</span>` : '',
+      rule.regex                ? `<span class="badge regex">regex</span>` : '',
+      !rule.allow && rule.replacement ? `<span class="badge repl">replace</span>` : '',
+    ].join('');
+    tr.innerHTML = `
+      <td class="r-idx">${i + 1}</td>
+      <td>
+        <div class="r-char">${rule.char === ' ' ? '␣' : escHtml(rule.char)}</div>
+        <div class="r-cps">${escHtml(toCodepoints(rule.char))}</div>
+      </td>
+      <td class="r-name">${escHtml(name) || `<span style="color:var(--faint)">—</span>`}</td>
+      <td>${repl}</td>
+      <td><span class="flags">${flags}</span></td>
+      <td>
+        <div class="r-acts">
+          <button class="iconbtn" data-action="up"   data-i="${i}" ${i===0?'disabled':''} title="Move up">↑</button>
+          <button class="iconbtn" data-action="down" data-i="${i}" ${i===rules.length-1?'disabled':''} title="Move down">↓</button>
+          <button class="iconbtn" data-action="edit" data-i="${i}" title="Edit">✏️</button>
+          <button class="iconbtn danger" data-action="del" data-i="${i}" title="Delete">🗑</button>
+        </div>
+      </td>`;
+    tr.addEventListener('click', ev => { if (!ev.target.closest('.r-acts')) selectRow(i); });
+    tbody.appendChild(tr);
+  });
+  rebuildTranslator();
+  updateRailMeta();
+  if (discoverItems.length) renderUncoveredPanel();
+}
+
+// ── Row actions ──────────────────────────────────────────────
+document.getElementById('rule-tbody').addEventListener('click', e => {
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const i = +btn.dataset.i, a = btn.dataset.action;
+  if (a === 'up'   && i > 0)              { [rules[i],rules[i-1]]=[rules[i-1],rules[i]]; selectedIdx=i-1; renderTable(); selectRow(i-1); saveTable(); }
+  if (a === 'down' && i < rules.length-1) { [rules[i],rules[i+1]]=[rules[i+1],rules[i]]; selectedIdx=i+1; renderTable(); selectRow(i+1); saveTable(); }
+  if (a === 'edit') openEdit(i);
+  if (a === 'del')  deleteRow(i);
+});
+
+// ── Row select ───────────────────────────────────────────────
+function selectRow(i) {
+  if (editIdx !== null) return;
+  selectedIdx = i;
+  document.querySelectorAll('#rule-tbody tr').forEach(r => r.classList.remove('sel'));
+  document.querySelector(`#rule-tbody tr[data-i="${i}"]`)?.classList.add('sel');
+  const rule = rules[i];
+  const name = rule.record?.name ?? rule.record?.ontographe ?? '';
+  document.getElementById('edit-title').textContent = `Rule ${i + 1}`;
+  document.getElementById('edit-hint').hidden  = true;
+  document.getElementById('edit-form').hidden  = true;
+  document.getElementById('view-panel').hidden = false;
+  document.getElementById('rule-detail').innerHTML = `
+    <div class="rule-detail">
+      <div class="rd-glyph">${rule.char === ' ' ? '␣' : escHtml(rule.char)}</div>
+      <div class="rd-cp">${escHtml(toCodepoints(rule.char))}</div>
+      <div class="rd-row">
+        <b style="font-family:var(--serif)">${escHtml(rule.replacement || '—')}</b>
+        <span>replacement</span>
+        ${name ? `<span style="color:var(--faint)">·</span><span>${escHtml(name)}</span>` : ''}
+      </div>
+      <div class="rd-row">
+        ${rule.allow && !rule.regex ? `<span class="badge allow">allow</span>` : ''}
+        ${rule.regex ? `<span class="badge regex">regex</span>` : ''}
+        ${!rule.allow && rule.replacement ? `<span class="badge repl">replace</span>` : ''}
+      </div>
+    </div>`;
+  document.getElementById('btn-edit-sel').onclick = () => openEdit(i);
+  document.getElementById('btn-del-sel').onclick  = () => deleteRow(i);
+}
+
+function resetSidePanel() {
+  selectedIdx = null; editIdx = null;
+  document.getElementById('edit-title').textContent = 'Rule editor';
+  document.getElementById('edit-hint').hidden  = false;
+  document.getElementById('view-panel').hidden = true;
+  document.getElementById('edit-form').hidden  = true;
+}
+
+// ── Edit form ────────────────────────────────────────────────
+function openEdit(i, prefill = {}) {
+  editIdx = i;
+  const rule = i >= 0 ? rules[i] : null;
+  document.getElementById('edit-title').textContent = i >= 0 ? `Edit rule ${i + 1}` : 'Add rule';
+  document.getElementById('edit-char').value    = prefill.char  ?? rule?.char ?? '';
+  document.getElementById('edit-repl').value    = prefill.repl  ?? rule?.replacement ?? '';
+  document.getElementById('edit-name').value    = prefill.name  ?? (rule?.record?.name ?? rule?.record?.ontographe ?? '');
+  document.getElementById('edit-regex').checked = prefill.regex ?? rule?.regex ?? false;
+  document.getElementById('edit-allow').checked = prefill.allow ?? rule?._allow ?? false;
+  document.getElementById('edit-hint').hidden   = true;
+  document.getElementById('view-panel').hidden  = true;
+  document.getElementById('edit-form').hidden   = false;
+}
+
+document.getElementById('btn-save-row').addEventListener('click', () => {
+  const char    = document.getElementById('edit-char').value;
+  const repl    = document.getElementById('edit-repl').value;
+  const name    = document.getElementById('edit-name').value.trim();
+  const isRegex = document.getElementById('edit-regex').checked;
+  const isAllow = document.getElementById('edit-allow').checked;
+  if (!char.trim()) { alert('Character / pattern is required.'); return; }
+  const base   = editIdx >= 0 ? { ...rules[editIdx].record } : {};
+  const record = { ...base, char, replacement: isAllow ? '' : repl };
+  if (name)    record.name  = name;
+  if (isRegex) record.regex = 'true'; else delete record.regex;
+  if (isAllow) record.allow = 'true'; else delete record.allow;
+  const newRule = new Replacement({ char, replacement: isAllow ? '' : repl, regex: isRegex, allow: isAllow, record });
+  if (editIdx === -1) { rules.push(newRule); selectedIdx = rules.length - 1; }
+  else                { rules[editIdx] = newRule; selectedIdx = editIdx; }
+  editIdx = null;
+  renderTable(); selectRow(selectedIdx);
+  showToast('Rule saved'); saveTable();
+});
+
+document.getElementById('btn-cancel-edit').addEventListener('click', () => {
+  editIdx = null;
+  if (selectedIdx !== null) selectRow(selectedIdx); else resetSidePanel();
+});
+
+document.getElementById('btn-add-row').addEventListener('click', () => {
+  selectedIdx = null; openEdit(-1);
+});
+
+function deleteRow(i) {
+  if (!confirm(`Delete rule ${i + 1}?`)) return;
+  rules.splice(i, 1); resetSidePanel();
+  if (rules.length) renderTable(); else { showEntry(); discoverItems = []; }
+  saveTable();
+}
+
+// ── Full-table test ──────────────────────────────────────────
+document.getElementById('btn-translate').addEventListener('click', () => {
+  if (!translator) return;
+  const out = translator.translate(document.getElementById('input-text').value, norm || null);
+  const el = document.getElementById('result-box');
+  el.className = 'test-result';
+  el.innerHTML = `<strong>Translated:</strong><br>${escHtml(out)}`;
+});
+
+document.getElementById('btn-check-text').addEventListener('click', () => {
+  if (!translator) return;
+  const unk = translator.getUnknownChars(document.getElementById('input-text').value, norm || null);
+  const el = document.getElementById('result-box');
+  el.className = 'test-result';
+  if (!unk.size) {
+    el.innerHTML = `<span style="color:var(--green-dark);font-weight:600">✓ All characters covered</span>`;
+  } else {
+    const chips = [...unk].map(c =>
+      `<span style="display:inline-block;background:var(--skip-bg);color:var(--skip-fg);border-radius:4px;padding:1px 7px;margin:2px;font-family:var(--serif)">${escHtml(c)} <small style="font-family:var(--mono);font-size:.8em">${charHex(c)}</small></span>`
+    ).join('');
+    el.innerHTML = `<span style="color:var(--red);font-weight:600">⚠ ${unk.size} unknown:</span><br>${chips}`;
+  }
+});
+
+document.getElementById('btn-clear-full').addEventListener('click', () => {
+  document.getElementById('input-text').value = '';
+  const el = document.getElementById('result-box');
+  el.className = 'test-result placeholder'; el.textContent = 'Result will appear here.';
+});
+
+// ── Discover ─────────────────────────────────────────────────
+function openDiscoverPicker() { document.getElementById('discover-xml').click(); }
+document.getElementById('btn-discover').addEventListener('click', openDiscoverPicker);
+
+const discBanner = document.getElementById('disc-banner');
+discBanner.addEventListener('click', openDiscoverPicker);
+discBanner.addEventListener('dragover',  e => { e.preventDefault(); discBanner.classList.add('hot'); });
+discBanner.addEventListener('dragleave', () => discBanner.classList.remove('hot'));
+discBanner.addEventListener('drop', async e => {
+  e.preventDefault(); discBanner.classList.remove('hot');
+  const files = [...e.dataTransfer.files].filter(f => f.name.endsWith('.xml') && !f.name.endsWith('.chocomufin.xml'));
+  if (files.length) await runDiscover(files);
+});
+
+document.getElementById('discover-xml').addEventListener('change', async e => {
+  const files = Array.from(e.target.files).filter(f => f.name.endsWith('.xml') && !f.name.endsWith('.chocomufin.xml'));
+  e.target.value = '';
+  if (!files.length) return;
+  await runDiscover(files);
+});
+
+async function runDiscover(files) {
+  if (!translator) { rules = []; rebuildTranslator(); }
+  if (document.getElementById('view-table').hidden) { showTable(); renderTable(); }
+  const charMap = new Map();
+  for (const file of files) {
+    let text; try { text = await file.text(); } catch { continue; }
+    const Cls = detectParser(text);
+    if (!Cls) continue;
+    try {
+      const p = new Cls(text, file.name);
+      for (const { id, text: line } of p.getLines()) {
+        const unk = translator.getUnknownChars(line, norm || null);
+        for (const ch of unk) {
+          if (!charMap.has(ch)) charMap.set(ch, { count: 0, examples: [] });
+          const entry = charMap.get(ch);
+          entry.count++;
+          if (entry.examples.length < 2) entry.examples.push({ file: file.name, lineId: id, text: line });
+        }
+      }
+    } catch { continue; }
+  }
+  discoverItems = [...charMap.entries()]
+    .sort((a, b) => b[1].count - a[1].count)
+    .map(([char, data]) => ({ char, ...data, status: 'pending' }));
+  discoverCtx = `scanned ${files.length} XML file${files.length !== 1 ? 's' : ''}`;
+  if (!discoverItems.length) { showToast('No unknown characters — table covers all text'); return; }
+  renderTable(); renderUncoveredPanel();
+  showToast(`Found ${discoverItems.length} characters needing a decision`);
+}
+
+// ── Uncovered panel ──────────────────────────────────────────
+function renderUncoveredPanel() {
+  if (translator) {
+    discoverItems.forEach(item => {
+      if (item.status === 'pending' && translator.getUnknownChars(item.char, norm || null).size === 0)
+        item.status = 'auto';
+    });
+  }
+  const pending = discoverItems.filter(i => i.status === 'pending');
+  const panel   = document.getElementById('uncovered-panel');
+  if (!discoverItems.length) { panel.hidden = true; return; }
+  panel.hidden = false;
+  const titleEl = document.getElementById('unc-title');
+  if (pending.length) { titleEl.textContent = `${pending.length} character${pending.length !== 1 ? 's' : ''} not covered`; titleEl.style.color = 'var(--amber)'; }
+  else                { titleEl.textContent = '✓ All discovered characters resolved'; titleEl.style.color = 'var(--green-dark)'; }
+  document.getElementById('unc-context').textContent = discoverCtx;
+  document.getElementById('unc-list').innerHTML = pending.map(item => {
+    const idx = discoverItems.indexOf(item);
+    const hex = toCodepoints(item.char);
+    const cp  = item.char.codePointAt(0);
+    const isCtrl = cp < 0x20 || (cp >= 0x7f && cp <= 0x9f);
+    const glyph  = isCtrl
+      ? `<span class="unc-glyph box">${escHtml(hex)}</span>`
+      : `<span class="unc-glyph">${escHtml(item.char)}</span>`;
+    return `<div class="unc-row" data-unc="${idx}">
+      ${glyph}
+      <span class="unc-cp">${escHtml(hex)}</span>
+      <span class="unc-count">${item.count}×</span>
+      <span class="unc-spacer"></span>
+      <div class="unc-actions" id="unc-act-${idx}">
+        <button class="btn btn-green btn-sm"   data-ua="allow"     data-ui="${idx}">Allow</button>
+        <button class="btn btn-outline btn-sm" data-ua="show-repl" data-ui="${idx}">Replace…</button>
+        <button class="btn btn-ghost btn-sm"   data-ua="skip"      data-ui="${idx}">Skip</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('unc-list').addEventListener('click', e => {
+  const btn = e.target.closest('[data-ua]');
+  if (!btn) return;
+  const idx = +btn.dataset.ui, action = btn.dataset.ua;
+  if (action === 'allow') {
+    discAllow(idx); renderTable(); renderUncoveredPanel(); saveTable();
+  } else if (action === 'skip') {
+    discoverItems[idx].status = 'skipped'; renderTable(); renderUncoveredPanel();
+  } else if (action === 'show-repl') {
+    document.getElementById(`unc-act-${idx}`).innerHTML = `
+      <div class="repl-field">
+        <input type="text" id="unc-repl-${idx}" placeholder="replacement…">
+        <button class="btn btn-blue btn-sm"  data-ua="save-repl"   data-ui="${idx}">Add</button>
+        <button class="btn btn-ghost btn-sm" data-ua="cancel-repl" data-ui="${idx}">✗</button>
+      </div>`;
+    document.getElementById(`unc-repl-${idx}`)?.focus();
+  } else if (action === 'cancel-repl') {
+    renderUncoveredPanel();
+  } else if (action === 'save-repl') {
+    const input = document.getElementById(`unc-repl-${idx}`);
+    if (!input) return;
+    const repl = input.value, { char } = discoverItems[idx];
+    rules.push(new Replacement({ char, replacement: repl, record: { char, replacement: repl } }));
+    discoverItems[idx].status = 'replaced';
+    renderTable(); renderUncoveredPanel(); saveTable();
+  }
+});
+
+document.getElementById('btn-allow-all-unc').addEventListener('click', () => {
+  discoverItems.forEach((_, idx) => { if (discoverItems[idx].status === 'pending') discAllow(idx); });
+  renderTable(); renderUncoveredPanel(); saveTable();
+});
+document.getElementById('btn-dismiss-unc').addEventListener('click', () => {
+  discoverItems = [];
+  document.getElementById('uncovered-panel').hidden = true;
+});
+
+function discAllow(idx) {
+  const { char } = discoverItems[idx];
+  rules.push(new Replacement({ char, replacement: '', allow: true, record: { char, replacement: '', allow: 'true' } }));
+  rebuildTranslator();
+  discoverItems[idx].status = 'allowed';
+}
+
+// ── Init ─────────────────────────────────────────────────────
+showEntry();
+</script>
+</body>
+</html>
