@@ -674,7 +674,14 @@ document.getElementById('btn-run-convert').addEventListener('click', async () =>
       const p = new Cls(text, file.name);
       for (const { id, text: line, element } of p.getLines()) {
         const out = translator.translate(line, norm || null);
-        if (out !== line) { p.setContent(element, out); p.addLog(id, line, out); changes.push({id, before:line, after:out}); }
+        if (out !== line) {
+          p.setContent(element, out);
+          p.addLog(id, line, out);
+          // Only show in diff if there is a visible (NFC-level) change.
+          // NFD normalization alone changes the string without changing appearance.
+          const lineNFC = line.normalize('NFC'), outNFC = out.normalize('NFC');
+          if (lineNFC !== outNFC) changes.push({ id, before: lineNFC, after: outNFC });
+        }
       }
       outputXml = p.serialize();
     } catch(err) { blocks.push(errBlock(file.name, err.message)); continue; }
