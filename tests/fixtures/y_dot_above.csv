@@ -1,0 +1,3 @@
+char,name,replacement,ontographe,regex
+ẏ,LATIN SMALL LETTER Y WITH DIAERESIS,y,y,
+[a-zA-Z],All letters,[a-zA-Z],,true

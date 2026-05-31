@@ -1,0 +1,19 @@
+{
+  "name": "choco-mufin",
+  "version": "0.1.0",
+  "description": "CHaracter Ocr COordination for MUFI iN texts — browser-side ESM library",
+  "type": "module",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "scripts": {
+    "dev": "vite --open",
+    "build": "vite build",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "vitest": "^2.0.0"
+  }
+}
